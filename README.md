@@ -1,6 +1,6 @@
 # SMS Explorer
 
-### Browse the Web over SMS using Termux API
+### Browse the Web over SMS
 
 Simple SMS-based web browser inspired
 by [TxtNet Browser](https://github.com/lukeaschenbrenner/TxtNet-Browser). Uses Termux API as server backend
