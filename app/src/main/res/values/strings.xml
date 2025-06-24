@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">SMS Explorer</string>
+    <string name="estimated_time_remaining">%s remaining</string>
+    <string name="forward">Forward</string>
+    <string name="settings">Settings</string>
+    <string name="phone_number">Phone number</string>
+</resources>

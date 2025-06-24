@@ -1,0 +1,5 @@
+asyncio
+httpx
+brotli
+beautifulsoup4
+htmlmin
