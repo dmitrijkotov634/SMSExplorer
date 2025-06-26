@@ -120,10 +120,9 @@ class MainActivity : AppCompatActivity() {
         url.editText?.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 val input = v.text.toString()
-                val encoded = compressAndEncode(input)
                 val baseUrl = extractBaseUrl(input)
                 smsViewModel.setBaseUrl(baseUrl)
-                sendText(encoded)
+                sendURL(input)
                 true
             } else {
                 false
@@ -218,9 +217,8 @@ class MainActivity : AppCompatActivity() {
                         val baseUrl = extractBaseUrl(fullUrl)
                         smsViewModel.setBaseUrl(baseUrl)
 
-                        val encoded = compressAndEncode(fullUrl)
                         binding.url.editText?.setText(fullUrl)
-                        sendText(encoded)
+                        sendURL(fullUrl)
                     }
 
                     return true
@@ -266,7 +264,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun openSettingsDialog() {
         val setupDialogBinding = DialogSetupBinding.inflate(layoutInflater)
-        setupDialogBinding.text.setText(preferences.getString(PHONE, null))
+
+        setupDialogBinding.apply {
+            text.setText(preferences.getString(PHONE, null))
+            imageQuality.setText(preferences.getInt(IMAGE_QUALITY, 1).toString())
+            imagesCheckbox.isChecked = preferences.getBoolean(IMAGES_ENABLED, false)
+            rawCheckbox.isChecked = preferences.getBoolean(RAW_ENABLED, false)
+            pngCheckbox.isChecked = preferences.getBoolean(PNG_ENABLED, false)
+        }
 
         MaterialAlertDialogBuilder(this)
             .setTitle("Setup")
@@ -274,6 +279,10 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 preferences.edit {
                     putString(PHONE, setupDialogBinding.text.text.toString())
+                    putInt(IMAGE_QUALITY, setupDialogBinding.imageQuality.text.toString().toIntOrNull() ?: 1)
+                    putBoolean(IMAGES_ENABLED, setupDialogBinding.imagesCheckbox.isChecked)
+                    putBoolean(RAW_ENABLED, setupDialogBinding.rawCheckbox.isChecked)
+                    putBoolean(PNG_ENABLED, setupDialogBinding.pngCheckbox.isChecked)
                 }
 
                 smsReceiver.targetSender = setupDialogBinding.text.text.toString()
@@ -288,7 +297,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun sendText(message: String) {
+    private fun sendURL(message: String) {
         if (!hasAllPermissions()) {
             Toast.makeText(this, "SMS permissions required", Toast.LENGTH_SHORT).show()
             requestPermissions()
@@ -296,13 +305,57 @@ class MainActivity : AppCompatActivity() {
         }
 
         val phoneNumber = preferences.getString(PHONE, null) ?: return openSettingsDialog()
+        val flags = mutableListOf<String>()
 
-        smsViewModel.reset()
+        val imagesEnabled = preferences.getBoolean(IMAGES_ENABLED, false)
+
+        if (imagesEnabled) {
+            flags.add("IMG")
+        }
+
+        if (preferences.getBoolean(RAW_ENABLED, false) && imagesEnabled) {
+            flags.add("RAW")
+            flags.remove("IMG")
+        }
+
+        if (preferences.getBoolean(PNG_ENABLED, false) && imagesEnabled) {
+            flags.add("PNG")
+            flags.remove("IMG")
+        }
+
+        if (imagesEnabled) {
+            val imageQuality = preferences.getInt(IMAGE_QUALITY, 1)
+
+            if (imageQuality != 1) {
+                flags.add("IMGQ$imageQuality")
+                flags.remove("IMG")
+            }
+        }
+
+        val finalMessage = if (flags.isNotEmpty()) {
+            "${flags.joinToString(" ")} $message"
+        } else {
+            message
+        }
+
+        val encoded = compressAndEncode(finalMessage)
+
         smsViewModel.processSending()
-        smsManager?.sendTextMessage(phoneNumber, null, message, null, null)
+        if (encoded.length > 160) {
+            val parts = smsManager?.divideMessage(encoded)
+            smsManager?.sendMultipartTextMessage(phoneNumber, null, parts, null, null)
+        } else {
+            smsManager?.sendTextMessage(phoneNumber, null, encoded, null, null)
+        }
     }
 
     companion object {
         const val PHONE = "phone"
+
+        private const val IMAGE_QUALITY = "image_quality"
+        private const val IMAGES_ENABLED = "images_enabled"
+        private const val RAW_ENABLED = "raw_enabled"
+        private const val PNG_ENABLED = "png_enabled"
+
     }
 }

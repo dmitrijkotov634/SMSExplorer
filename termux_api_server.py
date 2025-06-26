@@ -1,14 +1,18 @@
 import asyncio
+import base64
 import json
 import logging
 import re
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import Optional
+from urllib.parse import urljoin
 
 import brotli
 import bs4
 import htmlmin
 import httpx
+from PIL import Image
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 
@@ -92,19 +96,103 @@ async def listen_sms():
                 ctx.latest_id = message["_id"]
 
 
-def extract_useful_html(raw_html: str) -> str:
+@dataclass
+class RequestParams:
+    raw: bool = False
+    no_limit: bool = False
+    images: bool = False
+    image_quality: int = 1
+    preserve_alpha: bool = False
+
+    @staticmethod
+    def from_tokens(tokens: list[str]) -> tuple["RequestParams", str | None]:
+        flags = RequestParams()
+        url = None
+
+        for token in tokens:
+            token_upper = token.strip().upper()
+            if token.lower().startswith("http"):
+                url = token.strip()
+            elif token_upper == "RAW":
+                flags.raw = True
+            elif token_upper == "NOLIMIT":
+                flags.no_limit = True
+            elif token_upper == "IMG":
+                flags.images = True
+            elif token_upper == "PNG":
+                flags.images = True
+                flags.preserve_alpha = True
+            elif token_upper.startswith("IMGQ"):
+                try:
+                    flags.images = True
+                    quality = int(token_upper[4:])
+                    if 1 <= quality <= 95:
+                        flags.image_quality = quality
+                except ValueError:
+                    pass
+
+        return flags, url
+
+
+async def fetch_image_base64(client, url: str, params: RequestParams) -> str | None:
+    logger.debug(f"Fetching image: {url}")
+    resp = await client.get(url, timeout=5.0)
+    resp.raise_for_status()
+
+    img = Image.open(BytesIO(resp.content))
+
+    if params.preserve_alpha and img.mode in ("RGBA", "LA"):
+        img = img.convert("RGBA")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG", optimize=True)
+        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{img_base64}"
+    else:
+        img = img.convert("RGB")
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=params.image_quality)
+        img_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{img_base64}"
+
+
+async def extract_useful_html(raw_html: str, params: RequestParams, base_url: str) -> str:
     soup = bs4.BeautifulSoup(raw_html, "html.parser")
 
-    for tag in soup(["script", "style", "meta", "iframe", "noscript", "link", "img"]):
+    for tag in soup(["script", "style", "meta", "iframe", "noscript", "video", "title"]):
         tag.decompose()
 
+    img_tags = []
+    if params.images:
+        img_tags = [tag for tag in soup.find_all("img") if tag.get("src")]
+    else:
+        for tag in soup.find_all("img"):
+            tag.decompose()
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        tasks = [fetch_image_base64(client, urljoin(base_url, tag["src"]), params) for tag in img_tags]
+        base64_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for tag, data_uri in zip(img_tags, base64_results):
+        if isinstance(data_uri, Exception):
+            logger.warning(f"Image conversion failed: {data_uri}")
+            tag.decompose()
+        elif data_uri:
+            tag["src"] = data_uri
+        else:
+            tag.decompose()
+
+    head_tag = soup.find("head")
+    if head_tag and not head_tag.get_text(strip=True) and not head_tag.find_all():
+        head_tag.decompose()
+
     for tag in soup.find_all(True):
-        allowed_attrs = {"action", "method", "type", "name", "value", "href", "id", "placeholder"}
+        allowed_attrs = {"action", "method", "type", "name", "value", "href", "id", "placeholder", "src"}
         tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed_attrs}
 
     cleaned_html = str(soup)
     cleaned_html = re.sub(r'<!DOCTYPE[^>]*>', '', cleaned_html)
 
+    print(cleaned_html)
     return htmlmin.minify(
         cleaned_html,
         remove_comments=True,
@@ -228,6 +316,9 @@ async def send_multipart_sms(
 async def process_request(number: str, decoded_request: str):
     logger.info(f"Processing request from {number}: {decoded_request}")
 
+    tokens = decoded_request.split()
+    params, url = RequestParams.from_tokens(tokens)
+
     async with httpx.AsyncClient(
             timeout=20,
             headers=HEADERS,
@@ -235,12 +326,11 @@ async def process_request(number: str, decoded_request: str):
             verify=False
     ) as client:
         try:
-            response = await client.get(decoded_request)
+            response = await client.get(url)
             logger.info(f"HTTP response received for {number}: status {response.status_code}")
             final_url = str(response.url)
-            html = extract_useful_html(response.text)
+            html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
             html_with_base = f'<base href="{final_url}">{html}'
-            # print(html_with_base)
             if not await send_multipart_sms(number, encode_sms_data(html_with_base)):
                 await send_multipart_sms(number, encode_sms_data("Reached limit"))
         except httpx.TimeoutException:

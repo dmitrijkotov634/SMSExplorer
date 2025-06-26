@@ -4,4 +4,8 @@
     <string name="forward">Forward</string>
     <string name="settings">Settings</string>
     <string name="phone_number">Phone number</string>
+    <string name="image_quality">Image Quality (1–95)</string>
+    <string name="images">Images</string>
+    <string name="raw">Raw</string>
+    <string name="png">PNG</string>
 </resources>
