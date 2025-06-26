@@ -2,11 +2,12 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import brotli
 import bs4
@@ -35,6 +36,41 @@ HEADERS = {
 
 MAX_SMS_LENGTH = 160
 SMS_LIMIT_PER_REQUEST = 100
+
+DOMAIN_MAPPING: dict[str, tuple[str, Optional[int]]] = {}
+
+
+def parse_target(target_string: str) -> tuple[str, Optional[int]]:
+    if ':' in target_string:
+        host, port_str = target_string.rsplit(':', 1)
+        try:
+            port = int(port_str)
+            return host, port
+        except ValueError:
+            return target_string, None
+    return target_string, None
+
+
+def load_host_mapping(file_path: str = "host_mapping.txt"):
+    if not os.path.exists(file_path):
+        return
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        domain = parts[0].lower()
+                        target = parts[1]
+
+                        target_host, target_port = parse_target(target)
+                        DOMAIN_MAPPING[domain] = (target_host, target_port)
+
+        logger.info(f"Loaded {len(DOMAIN_MAPPING)} host mappings from {file_path}")
+    except Exception as e:
+        logger.error(f"Error loading host mappings: {e}")
 
 
 @dataclass
@@ -103,6 +139,7 @@ class RequestParams:
     images: bool = False
     image_quality: int = 1
     preserve_alpha: bool = False
+    method: str = "GET"
 
     @staticmethod
     def from_tokens(tokens: list[str]) -> tuple["RequestParams", str | None]:
@@ -130,6 +167,8 @@ class RequestParams:
                         flags.image_quality = quality
                 except ValueError:
                     pass
+            elif token_upper in ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]:
+                flags.method = token_upper
 
         return flags, url
 
@@ -305,28 +344,116 @@ async def send_multipart_sms(number: str, parts: str | list[str]):
     return True
 
 
+def reverse_redirect_domain(url: str) -> str:
+    if not DOMAIN_MAPPING or not url:
+        return url
+
+    try:
+        parsed = urlparse(url)
+        current_host = parsed.hostname
+        current_port = parsed.port
+
+        if not current_host:
+            return url
+
+        for original_domain, (target_host, target_port) in DOMAIN_MAPPING.items():
+            host_match = current_host == target_host
+            port_match = (target_port is None and current_port is None) or (current_port == target_port)
+
+            if host_match and port_match:
+                new_netloc = original_domain
+
+                if '@' in parsed.netloc:
+                    userinfo = parsed.netloc.split('@')[0]
+                    new_netloc = f"{userinfo}@{new_netloc}"
+
+                new_parsed = parsed._replace(netloc=new_netloc)
+                reversed_url = urlunparse(new_parsed)
+
+                logger.info(f"Host reversed: {current_host}:{current_port or 'default'} -> {original_domain}")
+                return reversed_url
+
+    except Exception as e:
+        logger.error(f"Error reversing domain: {e}")
+
+    return url
+
+
+def redirect_domain(url: str) -> str:
+    if not DOMAIN_MAPPING or not url:
+        return url
+
+    try:
+        parsed = urlparse(url)
+        original_host = parsed.hostname
+
+        if not original_host:
+            return url
+
+        if original_host.lower() in DOMAIN_MAPPING:
+            target_host, target_port = DOMAIN_MAPPING[original_host.lower()]
+
+            if target_port:
+                new_netloc = f"{target_host}:{target_port}"
+            else:
+                new_netloc = target_host
+
+            if '@' in parsed.netloc:
+                userinfo = parsed.netloc.split('@')[0]
+                new_netloc = f"{userinfo}@{new_netloc}"
+
+            new_parsed = parsed._replace(netloc=new_netloc)
+            redirected_url = urlunparse(new_parsed)
+
+            logger.info(f"Host redirected: {original_host} -> {target_host}:{target_port or 'default'}")
+            return redirected_url
+
+    except Exception as e:
+        logger.error(f"Error redirecting domain: {e}")
+
+    return url
+
+
 async def process_request(number: str, decoded_request: str):
     logger.info(f"Processing request from {number}: {decoded_request}")
 
-    tokens = decoded_request.split()
+    if '\n' in decoded_request:
+        headers_part, body_part = decoded_request.split('\n', 1)
+        body = body_part.strip() if body_part.strip() else None
+    else:
+        headers_part = decoded_request
+        body = None
+
+    tokens = headers_part.split()
     params, url = RequestParams.from_tokens(tokens)
+
+    url = redirect_domain(url)
 
     async with httpx.AsyncClient(
             timeout=20,
-            headers=HEADERS,
+            headers={"SE-Phone-Number": number, **HEADERS},
             follow_redirects=True,
             verify=False
     ) as client:
         try:
-            response = await client.get(url)
+            request_kwargs = {"method": params.method, "url": url}
+
+            if body and params.method in ["POST", "PUT", "PATCH"]:
+                request_kwargs["data"] = body
+                request_kwargs["headers"] = {
+                    **request_kwargs.get("headers", {}),
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }
+
+            response = await client.request(**request_kwargs)
             logger.info(f"HTTP response received for {number}: status {response.status_code}")
-            final_url = str(response.url)
+            final_url = reverse_redirect_domain(str(response.url))
             html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
             html_with_base = f'<base href="{final_url}">{html}'
-            parts = make_chunks_with_prefix(html_with_base)
+            parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
             if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
                 return await send_multipart_sms(number, encode_sms_data(f"Reached limit: {len(parts)} SMS"))
-            await send_multipart_sms(number, encode_sms_data(html_with_base))
+            await send_multipart_sms(number, parts)
         except httpx.TimeoutException:
             await send_multipart_sms(number, encode_sms_data("Request timeout"))
         except httpx.HTTPError as e:
@@ -337,6 +464,7 @@ async def process_request(number: str, decoded_request: str):
 
 
 async def main():
+    load_host_mapping()
     logger.info("SMS server started")
     async for number, ctx, content in listen_sms():
         try:

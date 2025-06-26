@@ -14,6 +14,7 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -39,6 +40,7 @@ import com.txtnet.brotli4droid.Brotli4jLoader
 import com.wavecat.textbrowser.databinding.ActivityMainBinding
 import com.wavecat.textbrowser.databinding.DialogSetupBinding
 import kotlinx.coroutines.launch
+import java.io.ByteArrayInputStream
 
 class MainActivity : AppCompatActivity() {
     private val binding by lazy { ActivityMainBinding.inflate(layoutInflater) }
@@ -206,6 +208,64 @@ class MainActivity : AppCompatActivity() {
     private fun setupWebView() {
         binding.webView.apply {
             webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+
+                    view?.evaluateJavascript(
+                        """
+                        document.addEventListener('submit', function(e) {
+                            e.preventDefault();
+                            var form = e.target;
+                            var formData = new FormData(form);
+                            var params = [];
+                            
+                            for (var pair of formData.entries()) {
+                                params.push(pair[0] + '=' + encodeURIComponent(pair[1]));
+                            }
+                            
+                            var body = params.join('&');
+                            var url = form.action || window.location.href;
+                            var method = form.method.toUpperCase() || 'GET';
+                            
+                            window.SE.handleFormSubmit(url, method, body);
+                        });
+                    """, null
+                    )
+                }
+
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                ): WebResourceResponse? {
+                    request?.let { req ->
+                        val url = req.url.toString()
+
+                        if (req.method == "POST" &&
+                            req.requestHeaders["Content-Type"]?.contains("application/x-www-form-urlencoded") == true
+                        ) {
+                            val fullUrl = if (url.startsWith("http")) {
+                                url
+                            } else {
+                                "${smsViewModel.baseUrl.value}$url"
+                            }
+
+                            val baseUrl = extractBaseUrl(fullUrl)
+                            smsViewModel.setBaseUrl(baseUrl)
+
+                            binding.url.editText?.setText(fullUrl)
+                            sendURL(fullUrl, req.method)
+
+                            return WebResourceResponse(
+                                "text/html",
+                                "UTF-8",
+                                ByteArrayInputStream("".toByteArray())
+                            )
+                        }
+                    }
+
+                    return super.shouldInterceptRequest(view, request)
+                }
+
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     request?.url?.toString()?.let { url ->
                         val fullUrl = if (url.startsWith("http")) {
@@ -218,7 +278,7 @@ class MainActivity : AppCompatActivity() {
                         smsViewModel.setBaseUrl(baseUrl)
 
                         binding.url.editText?.setText(fullUrl)
-                        sendURL(fullUrl)
+                        sendURL(fullUrl, request.method)
                     }
 
                     return true
@@ -260,6 +320,23 @@ class MainActivity : AppCompatActivity() {
         fun openSettings() {
             runOnUiThread { openSettingsDialog() }
         }
+
+        @JavascriptInterface
+        fun handleFormSubmit(url: String, method: String, body: String) {
+            runOnUiThread {
+                val fullUrl = if (url.startsWith("http")) {
+                    url
+                } else {
+                    "${smsViewModel.baseUrl.value}$url"
+                }
+
+                val baseUrl = extractBaseUrl(fullUrl)
+                smsViewModel.setBaseUrl(baseUrl)
+                binding.url.editText?.setText(fullUrl)
+
+                sendURL(fullUrl, method, body)
+            }
+        }
     }
 
     private fun openSettingsDialog() {
@@ -299,7 +376,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun sendURL(message: String) {
+    private fun sendURL(message: String, method: String = "GET", body: String? = null) {
         if (!hasAllPermissions()) {
             Toast.makeText(this, "SMS permissions required", Toast.LENGTH_SHORT).show()
             requestPermissions()
@@ -311,9 +388,11 @@ class MainActivity : AppCompatActivity() {
 
         val imagesEnabled = preferences.getBoolean(IMAGES_ENABLED, false)
 
-        if (imagesEnabled) {
+        if (method != "GET")
+            flags.add(method)
+
+        if (imagesEnabled)
             flags.add("IMG")
-        }
 
         if (preferences.getBoolean(RAW_ENABLED, false) && imagesEnabled) {
             flags.add("RAW")
@@ -338,10 +417,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val finalMessage = if (flags.isNotEmpty()) {
-            "${flags.joinToString(" ")} $message"
-        } else {
-            message
+        val finalMessage = buildString {
+            if (flags.isNotEmpty()) {
+                append(flags.joinToString(" "))
+                append(" ")
+            }
+            append(message)
+            if (!body.isNullOrEmpty()) {
+                append("\n")
+                append(body)
+            }
         }
 
         val encoded = compressAndEncode(finalMessage)

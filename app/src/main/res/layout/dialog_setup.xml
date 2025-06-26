@@ -19,8 +19,10 @@
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/text"
             android:layout_width="match_parent"
+            android:autofillHints="phone"
             android:layout_height="wrap_content"
-            android:hint="@string/phone_number" />
+            android:hint="@string/phone_number"
+            android:inputType="textPassword" />
 
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -30,7 +32,6 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="26dp"
-        android:layout_marginTop="8dp"
         android:layout_marginEnd="26dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -60,20 +61,19 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="26dp"
-        android:layout_marginTop="8dp"
         android:text="@string/raw"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/quality_layout" />
+        app:layout_constraintTop_toBottomOf="@+id/nolimit_checkbox" />
 
     <CheckBox
         android:id="@+id/png_checkbox"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="26dp"
+        android:layout_marginStart="16dp"
         android:layout_marginTop="8dp"
         android:text="@string/png"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/raw_checkbox" />
+        app:layout_constraintStart_toEndOf="@+id/imagesCheckbox"
+        app:layout_constraintTop_toBottomOf="@+id/phone_layout" />
 
     <CheckBox
         android:id="@+id/nolimit_checkbox"
@@ -83,6 +83,6 @@
         android:layout_marginTop="8dp"
         android:text="@string/no_limit"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/png_checkbox" />
+        app:layout_constraintTop_toBottomOf="@+id/quality_layout" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>
