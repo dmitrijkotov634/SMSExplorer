@@ -192,7 +192,6 @@ async def extract_useful_html(raw_html: str, params: RequestParams, base_url: st
     cleaned_html = str(soup)
     cleaned_html = re.sub(r'<!DOCTYPE[^>]*>', '', cleaned_html)
 
-    print(cleaned_html)
     return htmlmin.minify(
         cleaned_html,
         remove_comments=True,
@@ -294,15 +293,8 @@ def make_chunks_with_prefix(text: str) -> list[str]:
     return chunks
 
 
-async def send_multipart_sms(
-        number: str,
-        text: str,
-        limit: int = SMS_LIMIT_PER_REQUEST
-) -> bool:
-    chunks = make_chunks_with_prefix(text)
-
-    if len(chunks) > limit:
-        return False
+async def send_multipart_sms(number: str, parts: str | list[str]):
+    chunks = parts if isinstance(parts, list) else make_chunks_with_prefix(parts)
 
     logger.info(f"Sending {len(chunks)} SMS chunks to {number}")
 
@@ -331,8 +323,10 @@ async def process_request(number: str, decoded_request: str):
             final_url = str(response.url)
             html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
             html_with_base = f'<base href="{final_url}">{html}'
-            if not await send_multipart_sms(number, encode_sms_data(html_with_base)):
-                await send_multipart_sms(number, encode_sms_data("Reached limit"))
+            parts = make_chunks_with_prefix(html_with_base)
+            if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
+                return await send_multipart_sms(number, encode_sms_data(f"Reached limit: {len(parts)} SMS"))
+            await send_multipart_sms(number, encode_sms_data(html_with_base))
         except httpx.TimeoutException:
             await send_multipart_sms(number, encode_sms_data("Request timeout"))
         except httpx.HTTPError as e:

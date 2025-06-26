@@ -271,6 +271,7 @@ class MainActivity : AppCompatActivity() {
             imagesCheckbox.isChecked = preferences.getBoolean(IMAGES_ENABLED, false)
             rawCheckbox.isChecked = preferences.getBoolean(RAW_ENABLED, false)
             pngCheckbox.isChecked = preferences.getBoolean(PNG_ENABLED, false)
+            nolimitCheckbox.isChecked = preferences.getBoolean(NOLIMIT_ENABLED, false)
         }
 
         MaterialAlertDialogBuilder(this)
@@ -283,6 +284,7 @@ class MainActivity : AppCompatActivity() {
                     putBoolean(IMAGES_ENABLED, setupDialogBinding.imagesCheckbox.isChecked)
                     putBoolean(RAW_ENABLED, setupDialogBinding.rawCheckbox.isChecked)
                     putBoolean(PNG_ENABLED, setupDialogBinding.pngCheckbox.isChecked)
+                    putBoolean(NOLIMIT_ENABLED, setupDialogBinding.nolimitCheckbox.isChecked)
                 }
 
                 smsReceiver.targetSender = setupDialogBinding.text.text.toString()
@@ -323,6 +325,10 @@ class MainActivity : AppCompatActivity() {
             flags.remove("IMG")
         }
 
+        if (preferences.getBoolean(NOLIMIT_ENABLED, false)) {
+            flags.add("NOLIMIT")
+        }
+
         if (imagesEnabled) {
             val imageQuality = preferences.getInt(IMAGE_QUALITY, 1)
 
@@ -356,6 +362,6 @@ class MainActivity : AppCompatActivity() {
         private const val IMAGES_ENABLED = "images_enabled"
         private const val RAW_ENABLED = "raw_enabled"
         private const val PNG_ENABLED = "png_enabled"
-
+        private const val NOLIMIT_ENABLED = "nolimit_enabled"
     }
 }
