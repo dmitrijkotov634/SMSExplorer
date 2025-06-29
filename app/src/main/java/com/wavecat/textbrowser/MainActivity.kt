@@ -213,23 +213,30 @@ class MainActivity : AppCompatActivity() {
 
                     view?.evaluateJavascript(
                         """
-                        document.addEventListener('submit', function(e) {
-                            e.preventDefault();
-                            var form = e.target;
-                            var formData = new FormData(form);
-                            var params = [];
-                            
-                            for (var pair of formData.entries()) {
-                                params.push(pair[0] + '=' + encodeURIComponent(pair[1]));
-                            }
-                            
-                            var body = params.join('&');
-                            var url = form.action || window.location.href;
-                            var method = form.method.toUpperCase() || 'GET';
-                            
-                            window.SE.handleFormSubmit(url, method, body);
-                        });
-                    """, null
+                       |document.addEventListener('submit', function(e) {
+                       |    e.preventDefault();
+                       |    var form = e.target;
+                       |    var formData = new FormData(form);
+                       |    var params = [];
+                       |    
+                       |    for (var pair of formData.entries()) {
+                       |        params.push(pair[0] + '=' + encodeURIComponent(pair[1]));
+                       |    }
+                       |    
+                       |    var url = form.action || window.location.href;
+                       |    var method = form.method.toUpperCase() || 'GET';
+                       |    var body = '';
+                       |    
+                       |    if (method === 'GET' && params.length > 0) {
+                       |        var separator = url.includes('?') ? '&' : '?';
+                       |        url = url + separator + params.join('&');
+                       |    } else if (method === 'POST') {
+                       |        body = params.join('&');
+                       |    }
+                       |    
+                       |    window.SE.handleFormSubmit(url, method, body);
+                       |});
+                       """.trimMargin(), null
                     )
                 }
 

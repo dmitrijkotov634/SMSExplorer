@@ -1,5 +1,5 @@
 [versions]
-agp = "8.10.1"
+agp = "8.11.0"
 brotli4droid = "1.1.0"
 kotlin = "2.0.21"
 coreKtx = "1.16.0"
@@ -16,8 +16,8 @@ webkit = "1.14.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+#noinspection Aligned16KB
 brotli4droid = { module = "io.github.lukeaschenbrenner:Brotli4Droid", version.ref = "brotli4droid" }
-brotli4j = { module = "com.aayushatharva.brotli4j:brotli4j", version.ref = "brotli4j" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
@@ -27,9 +27,6 @@ androidx-activity = { group = "androidx.activity", name = "activity", version.re
 androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 androidx-lifecycle-viewmodel-android = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-android", version.ref = "lifecycleViewmodelAndroid" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
-native-linux-aarch64 = { module = "com.aayushatharva.brotli4j:native-linux-aarch64", version.ref = "brotli4j" }
-native-linux-armv7 = { module = "com.aayushatharva.brotli4j:native-linux-armv7", version.ref = "brotli4j" }
-native-linux-x86_x4 = { module = "com.aayushatharva.brotli4j:native-linux-x86_64", version.ref = "brotli4j" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
