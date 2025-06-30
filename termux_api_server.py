@@ -34,6 +34,8 @@ HEADERS = {
     "User-Agent": "NokiaC3-00/08.70 Profile/MIDP-2.1 Configuration/CLDC-1.1"
 }
 
+ALLOWED_HTML_ATTRS = {"action", "method", "type", "name", "value", "href", "id", "placeholder", "src", "rows", "cols"}
+
 MAX_SMS_LENGTH = 160
 SMS_LIMIT_PER_REQUEST = 100
 
@@ -225,8 +227,7 @@ async def extract_useful_html(raw_html: str, params: RequestParams, base_url: st
         head_tag.decompose()
 
     for tag in soup.find_all(True):
-        allowed_attrs = {"action", "method", "type", "name", "value", "href", "id", "placeholder", "src"}
-        tag.attrs = {k: v for k, v in tag.attrs.items() if k in allowed_attrs}
+        tag.attrs = {k: v for k, v in tag.attrs.items() if k in ALLOWED_HTML_ATTRS}
 
     cleaned_html = str(soup)
     cleaned_html = re.sub(r'<!DOCTYPE[^>]*>', '', cleaned_html)
