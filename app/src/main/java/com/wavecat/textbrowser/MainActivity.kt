@@ -39,6 +39,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.txtnet.brotli4droid.Brotli4jLoader
 import com.wavecat.textbrowser.databinding.ActivityMainBinding
 import com.wavecat.textbrowser.databinding.DialogSetupBinding
+import com.wavecat.textbrowser.encoding.compressAndEncode
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 
@@ -323,11 +324,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private inner class WebAppInterface {
-        @JavascriptInterface
-        fun openSettings() {
-            runOnUiThread { openSettingsDialog() }
-        }
-
         @JavascriptInterface
         fun handleFormSubmit(url: String, method: String, body: String) {
             runOnUiThread {

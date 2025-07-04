@@ -1,4 +1,4 @@
-package com.wavecat.textbrowser
+package com.wavecat.textbrowser.encoding
 
 import java.math.BigInteger
 

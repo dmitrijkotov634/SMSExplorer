@@ -1,4 +1,4 @@
-package com.wavecat.textbrowser
+package com.wavecat.textbrowser.encoding
 
 import com.txtnet.brotli4droid.decoder.BrotliInputStream
 import com.txtnet.brotli4droid.encoder.BrotliOutputStream

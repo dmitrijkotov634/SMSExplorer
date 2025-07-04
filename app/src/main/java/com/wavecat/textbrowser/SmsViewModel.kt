@@ -1,6 +1,7 @@
 package com.wavecat.textbrowser
 
 import androidx.lifecycle.ViewModel
+import com.wavecat.textbrowser.encoding.decodeAndDecompress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
