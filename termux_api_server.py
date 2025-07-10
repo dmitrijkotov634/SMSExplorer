@@ -34,6 +34,12 @@ HEADERS = {
     "User-Agent": "NokiaC3-00/08.70 Profile/MIDP-2.1 Configuration/CLDC-1.1"
 }
 
+http_client = httpx.AsyncClient(
+    timeout=25,
+    follow_redirects=True,
+    verify=False
+)
+
 ALLOWED_HTML_ATTRS = {"action", "method", "type", "name", "value", "href", "id", "placeholder", "src", "rows", "cols"}
 
 MAX_SMS_LENGTH = 160
@@ -209,9 +215,8 @@ async def extract_useful_html(raw_html: str, params: RequestParams, base_url: st
         for tag in soup.find_all("img"):
             tag.decompose()
 
-    async with httpx.AsyncClient(follow_redirects=True) as client:
-        tasks = [fetch_image_base64(client, urljoin(base_url, tag["src"]), params) for tag in img_tags]
-        base64_results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [fetch_image_base64(http_client, urljoin(base_url, tag["src"]), params) for tag in img_tags]
+    base64_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for tag, data_uri in zip(img_tags, base64_results):
         if isinstance(data_uri, Exception):
@@ -418,50 +423,64 @@ def redirect_domain(url: str) -> str:
 async def process_request(number: str, decoded_request: str):
     logger.info(f"Processing request from {number}: {decoded_request}")
 
-    if '\n' in decoded_request:
-        headers_part, body_part = decoded_request.split('\n', 1)
-        body = body_part.strip() if body_part.strip() else None
-    else:
-        headers_part = decoded_request
-        body = None
+    try:
+        if '\n' in decoded_request:
+            headers_part, body_part = decoded_request.split('\n', 1)
+            body = body_part.strip() if body_part.strip() else None
+        else:
+            headers_part = decoded_request
+            body = None
 
-    tokens = headers_part.split()
-    params, url = RequestParams.from_tokens(tokens)
+        tokens = headers_part.split()
+        params, url = RequestParams.from_tokens(tokens)
 
-    url = redirect_domain(url)
+        redirected_url = redirect_domain(url)
 
-    async with httpx.AsyncClient(
-            timeout=20,
-            headers={"SE-Phone-Number": number, **HEADERS},
-            follow_redirects=True,
-            verify=False
-    ) as client:
+        parsed_url = urlparse(redirected_url)
+        check_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+        # noinspection PyBroadException
         try:
-            request_kwargs = {"method": params.method, "url": url}
+            check_response = await http_client.patch(
+                url=check_url,
+                headers=HEADERS
+            )
+            needs_phone_header = check_response.headers.get("SE-Phone-Number-Required", "").lower() == "true"
+        except Exception:
+            needs_phone_header = False
 
-            if body and params.method in ["POST", "PUT", "PATCH"]:
-                request_kwargs["data"] = body
-                request_kwargs["headers"] = {
-                    **request_kwargs.get("headers", {}),
-                    "Content-Type": "application/x-www-form-urlencoded"
-                }
+        request_kwargs = {
+            "method": params.method,
+            "url": redirected_url,
+            "headers": {
+                **HEADERS,
+                **({"SE-Phone-Number": number} if needs_phone_header else {})
+            }
+        }
 
-            response = await client.request(**request_kwargs)
-            logger.info(f"HTTP response received for {number}: status {response.status_code}")
-            final_url = reverse_redirect_domain(str(response.url))
-            html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
-            html_with_base = f'<base href="{final_url}">{html}'
-            parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
-            if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
-                return await send_multipart_sms(number, encode_sms_data(f"Reached limit: {len(parts)} SMS"))
-            await send_multipart_sms(number, parts)
-        except httpx.TimeoutException:
-            await send_multipart_sms(number, encode_sms_data("Request timeout"))
-        except httpx.HTTPError as e:
-            await send_multipart_sms(number, encode_sms_data(f"HTTP error: {e}"))
-        except Exception as e:
-            logger.error(f"Unexpected error processing request: {e}")
-            await send_multipart_sms(number, encode_sms_data("Server error"))
+        if body and params.method in ["POST", "PUT", "PATCH"]:
+            request_kwargs["data"] = body
+            request_kwargs["headers"] = {
+                **request_kwargs.get("headers", {}),
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+
+        response = await http_client.request(**request_kwargs)
+        logger.info(f"HTTP response received for {number}: status {response.status_code}")
+        final_url = reverse_redirect_domain(str(response.url))
+        html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
+        html_with_base = f'<base href="{final_url}">{html}'
+        parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
+        if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
+            return await send_multipart_sms(number, encode_sms_data(f"Reached limit: {len(parts)} SMS"))
+        await send_multipart_sms(number, parts)
+    except httpx.TimeoutException:
+        await send_multipart_sms(number, encode_sms_data("Request timeout"))
+    except httpx.HTTPError as e:
+        await send_multipart_sms(number, encode_sms_data(f"HTTP error: {e}"))
+    except Exception as e:
+        logger.error(f"Unexpected error processing request: {e}")
+        await send_multipart_sms(number, encode_sms_data("Server error"))
 
 
 async def main():
