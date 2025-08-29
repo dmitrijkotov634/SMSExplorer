@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import com.wavecat.textbrowser.encoding.decodeAndDecompress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.IOException
 
 class SmsViewModel : ViewModel() {
 
@@ -79,12 +80,23 @@ class SmsViewModel : ViewModel() {
             expectedParts = null
             _isLoading.value = false
 
-            try {
-                val decoded = decodeAndDecompress(fullMessage)
-                _decodedHtml.value = decoded
+            val decoded = try {
+                decodeAndDecompress(fullMessage)
             } catch (e: Exception) {
-                _decodedHtml.value = e.message
+                // Attempt append "\n"
+                if (e is IOException && e.message == "corrupted input") {
+                    try {
+                        decodeAndDecompress(fullMessage + "\n")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        e.message
+                    }
+                } else {
+                    e.message
+                }
             }
+
+            _decodedHtml.value = decoded
         }
     }
 

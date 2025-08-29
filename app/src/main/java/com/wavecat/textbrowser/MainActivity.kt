@@ -40,6 +40,7 @@ import com.txtnet.brotli4droid.Brotli4jLoader
 import com.wavecat.textbrowser.databinding.ActivityMainBinding
 import com.wavecat.textbrowser.databinding.DialogSetupBinding
 import com.wavecat.textbrowser.encoding.compressAndEncode
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 
@@ -132,6 +133,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        var lastHtml: String? = null
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 with(smsViewModel) {
@@ -159,25 +162,29 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     launch {
-                        decodedHtml.collect { html ->
-                            html?.let {
-                                val currentBaseUrl = baseUrl.value
-                                val newBaseUrl = extractBaseUrlFromHtml(it, currentBaseUrl)
+                        decodedHtml
+                            .filterNotNull()
+                            .collect { html ->
+                                if (html != lastHtml) {
+                                    val currentBaseUrl = baseUrl.value
+                                    val newBaseUrl = extractBaseUrlFromHtml(html, currentBaseUrl)
 
-                                if (newBaseUrl != null && newBaseUrl != currentBaseUrl) {
-                                    smsViewModel.setBaseUrl(newBaseUrl)
-                                    binding.url.editText?.setText(newBaseUrl)
+                                    if (newBaseUrl != null && newBaseUrl != currentBaseUrl) {
+                                        smsViewModel.setBaseUrl(newBaseUrl)
+                                        binding.url.editText?.setText(newBaseUrl)
+                                    }
+
+                                    webView.loadDataWithBaseURL(
+                                        newBaseUrl ?: currentBaseUrl,
+                                        html,
+                                        "text/html",
+                                        "UTF-8",
+                                        null
+                                    )
+
+                                    lastHtml = html
                                 }
-
-                                webView.loadDataWithBaseURL(
-                                    newBaseUrl ?: currentBaseUrl,
-                                    it,
-                                    "text/html",
-                                    "UTF-8",
-                                    null
-                                )
                             }
-                        }
                     }
                 }
             }
