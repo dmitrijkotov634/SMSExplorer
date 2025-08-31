@@ -40,7 +40,20 @@ http_client = httpx.AsyncClient(
     verify=False
 )
 
-ALLOWED_HTML_ATTRS = {"action", "method", "type", "name", "value", "href", "id", "placeholder", "src", "rows", "cols"}
+ALLOWED_HTML_ATTRS = {
+    "action",
+    "method",
+    "type",
+    "name",
+    "value",
+    "href",
+    "id",
+    "placeholder",
+    "src",
+    "rows",
+    "cols",
+    "disabled"
+}
 
 MAX_SMS_LENGTH = 160
 SMS_LIMIT_PER_REQUEST = 100
@@ -181,9 +194,14 @@ class RequestParams:
         return flags, url
 
 
-async def fetch_image_base64(client, url: str, params: RequestParams) -> str | None:
+async def fetch_image_base64(
+        client: httpx.AsyncClient,
+        url: str,
+        params: RequestParams,
+        headers: dict[str, str]
+) -> str | None:
     logger.debug(f"Fetching image: {url}")
-    resp = await client.get(url, timeout=5.0)
+    resp = await client.get(url, timeout=5.0, headers=headers)
     resp.raise_for_status()
 
     img = Image.open(BytesIO(resp.content))
@@ -202,20 +220,27 @@ async def fetch_image_base64(client, url: str, params: RequestParams) -> str | N
         return f"data:image/jpeg;base64,{img_base64}"
 
 
-async def extract_useful_html(raw_html: str, params: RequestParams, base_url: str) -> str:
+async def extract_useful_html(
+        raw_html: str,
+        params: RequestParams,
+        base_url: str,
+        headers: dict[str, str],
+        allowed_tags: list[str]
+) -> str:
     soup = bs4.BeautifulSoup(raw_html, "html.parser")
 
     for tag in soup(["script", "style", "meta", "iframe", "noscript", "video", "title"]):
-        tag.decompose()
+        if tag not in allowed_tags:
+            tag.decompose()
 
     img_tags = []
     if params.images:
         img_tags = [tag for tag in soup.find_all("img") if tag.get("src")]
-    else:
+    elif "img" not in allowed_tags:
         for tag in soup.find_all("img"):
             tag.decompose()
 
-    tasks = [fetch_image_base64(http_client, urljoin(base_url, tag["src"]), params) for tag in img_tags]
+    tasks = [fetch_image_base64(http_client, urljoin(base_url, tag["src"]), params, headers) for tag in img_tags]
     base64_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     for tag, data_uri in zip(img_tags, base64_results):
@@ -326,6 +351,8 @@ def make_chunks_with_prefix(text: str) -> list[str]:
 
         if end_pos < len(text) and text[end_pos - 1] == '\n':
             end_pos -= 1
+            if end_pos == pos:
+                end_pos = min(pos + chunk_size, len(text))
 
         part = text[pos:end_pos]
         prefix = f"{part_num}/{estimated_parts}#"
@@ -335,6 +362,8 @@ def make_chunks_with_prefix(text: str) -> list[str]:
         part_num += 1
 
     logger.info(f"Created {len(chunks)} SMS chunks from {len(text)} characters")
+    for n, part in enumerate(chunks):
+        print(n, f"({part})")
     return chunks
 
 
@@ -446,29 +475,49 @@ async def process_request(number: str, decoded_request: str):
                 headers=HEADERS
             )
             needs_phone_header = check_response.headers.get("SE-Phone-Number-Required", "").lower() == "true"
+            allow_images = check_response.headers.get("SE-Allow-Images", "").lower() == "true"
+            allowed_tags = []
+            for header, value in check_response.headers.items():
+                header_lower = header.lower()
+                if header_lower.startswith("se-allow-tag-") and value.lower() == "true":
+                    tag = header_lower.replace("se-allow-tag-", "")
+                    allowed_tags.append(tag)
         except Exception:
             needs_phone_header = False
+            allow_images = False
+            allowed_tags = []
+
+        if allow_images:
+            params.images = True
+
+        headers = {
+            **HEADERS,
+            **({"SE-Phone-Number": number} if needs_phone_header else {})
+        }
 
         request_kwargs = {
             "method": params.method,
             "url": redirected_url,
-            "headers": {
-                **HEADERS,
-                **({"SE-Phone-Number": number} if needs_phone_header else {})
-            }
+            "headers": headers
         }
 
         if body and params.method in ["POST", "PUT", "PATCH"]:
             request_kwargs["data"] = body
             request_kwargs["headers"] = {
-                **request_kwargs.get("headers", {}),
+                **headers,
                 "Content-Type": "application/x-www-form-urlencoded"
             }
 
         response = await http_client.request(**request_kwargs)
         logger.info(f"HTTP response received for {number}: status {response.status_code}")
         final_url = reverse_redirect_domain(str(response.url))
-        html = response.text if params.raw else await extract_useful_html(response.text, params, final_url)
+        html = response.text if params.raw else await extract_useful_html(
+            response.text,
+            params,
+            str(response.url),
+            headers,
+            allowed_tags
+        )
         html_with_base = f'<base href="{final_url}">{html}'
         parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
         if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
