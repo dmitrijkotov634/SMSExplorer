@@ -30,6 +30,15 @@ class SmsViewModel : ViewModel() {
     private val _estimatedTimeRemaining = MutableStateFlow<String?>(null)
     val estimatedTimeRemaining = _estimatedTimeRemaining.asStateFlow()
 
+    private val _asyncResponse = MutableStateFlow<String?>(null)
+    val asyncResponse = _asyncResponse.asStateFlow()
+
+    private val _isWaitingForAsync = MutableStateFlow(false)
+
+    fun setAsyncWaitingMode(isWaiting: Boolean) {
+        _isWaitingForAsync.value = isWaiting
+    }
+
     fun setBaseUrl(url: String) {
         _baseUrl.value = url
     }
@@ -96,7 +105,12 @@ class SmsViewModel : ViewModel() {
                 }
             }
 
-            _decodedHtml.value = decoded
+            if (_isWaitingForAsync.value) {
+                _isWaitingForAsync.value = false
+                _asyncResponse.value = decoded
+            } else {
+                _decodedHtml.value = decoded
+            }
         }
     }
 
@@ -108,6 +122,10 @@ class SmsViewModel : ViewModel() {
         _progressMax.value = 0
         _isLoading.value = false
         _estimatedTimeRemaining.value = null
+    }
+
+    fun clearAsyncResponse() {
+        _asyncResponse.value = null
     }
 
     fun processSending() {

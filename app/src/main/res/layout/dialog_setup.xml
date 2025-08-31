@@ -19,10 +19,9 @@
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/text"
             android:layout_width="match_parent"
-            android:autofillHints="phone"
             android:layout_height="wrap_content"
-            android:hint="@string/phone_number"
-            android:inputType="textPassword" />
+            android:autofillHints="phone"
+            android:hint="@string/phone_number" />
 
     </com.google.android.material.textfield.TextInputLayout>
 

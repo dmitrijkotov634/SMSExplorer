@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Telephony
 import android.telephony.SmsManager
+import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
@@ -186,6 +187,28 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                     }
+
+                    launch {
+                        asyncResponse
+                            .filterNotNull()
+                            .collect { data ->
+                                val escapedData = data
+                                    .replace("\\", "\\\\")
+                                    .replace("'", "\\'")
+                                    .replace("\n", "\\n")
+
+                                val script = """
+                                        |if (typeof window.handleResponse === 'function') {
+                                        |    window.handleResponse('$escapedData');
+                                        |} else {
+                                        |    console.error('Global function window.handleResponse is not defined on the web page.');
+                                        |}
+                                """.trimMargin()
+
+                                binding.webView.evaluateJavascript(script, null)
+                                smsViewModel.clearAsyncResponse()
+                            }
+                    }
                 }
             }
         }
@@ -344,6 +367,20 @@ class MainActivity : AppCompatActivity() {
                 smsViewModel.setBaseUrl(baseUrl)
                 binding.url.editText?.setText(fullUrl)
 
+                sendURL(fullUrl, method, body)
+            }
+        }
+
+        @JavascriptInterface
+        fun makeRequest(url: String, method: String, body: String) {
+            runOnUiThread {
+                if (smsViewModel.isLoading.value) {
+                    Log.w("WebAppInterface", "makeRequest called while already loading, request ignored.")
+                    return@runOnUiThread
+                }
+
+                smsViewModel.setAsyncWaitingMode(true)
+                val fullUrl = if (url.startsWith("http")) url else "${smsViewModel.baseUrl.value}$url"
                 sendURL(fullUrl, method, body)
             }
         }
