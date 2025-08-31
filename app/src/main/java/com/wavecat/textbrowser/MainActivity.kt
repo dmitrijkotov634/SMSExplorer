@@ -372,6 +372,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
+        fun mR(url: String, method: String) = makeRequest(url, method, "")
+
+        @JavascriptInterface
+        fun mR(url: String) = makeRequest(url, "GET", "")
+
+        @JavascriptInterface
+        fun makeRequest(url: String, method: String) = makeRequest(url, method, "")
+
+        @JavascriptInterface
+        fun makeRequest(url: String) = makeRequest(url, "GET", "")
+
+        @JavascriptInterface
         fun makeRequest(url: String, method: String, body: String) {
             runOnUiThread {
                 if (smsViewModel.isLoading.value) {
@@ -381,7 +393,7 @@ class MainActivity : AppCompatActivity() {
 
                 smsViewModel.setAsyncWaitingMode(true)
                 val fullUrl = if (url.startsWith("http")) url else "${smsViewModel.baseUrl.value}$url"
-                sendURL(fullUrl, method, body)
+                sendURL(fullUrl, method, body, noBase = true)
             }
         }
     }
@@ -423,7 +435,12 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun sendURL(message: String, method: String = "GET", body: String? = null) {
+    private fun sendURL(
+        message: String,
+        method: String = "GET",
+        body: String? = null,
+        noBase: Boolean = false,
+    ) {
         if (!hasAllPermissions()) {
             Toast.makeText(this, "SMS permissions required", Toast.LENGTH_SHORT).show()
             requestPermissions()
@@ -453,6 +470,14 @@ class MainActivity : AppCompatActivity() {
 
         if (preferences.getBoolean(NOLIMIT_ENABLED, false)) {
             flags.add("NOLIMIT")
+        }
+
+        if (noBase) {
+            flags.add("NOBASE")
+            flags.remove("RAW")
+            flags.remove("IMG")
+            flags.remove("PNG")
+            flags.remove("NOLIMIT")
         }
 
         if (imagesEnabled) {

@@ -160,6 +160,7 @@ class RequestParams:
     images: bool = False
     image_quality: int = 1
     preserve_alpha: bool = False
+    no_base: bool = False
     method: str = "GET"
 
     @staticmethod
@@ -177,6 +178,10 @@ class RequestParams:
                 flags.no_limit = True
             elif token_upper == "IMG":
                 flags.images = True
+            elif token_upper == "NOBASE":
+                flags.no_base = True
+                flags.raw = True
+                flags.no_limit = True
             elif token_upper == "PNG":
                 flags.images = True
                 flags.preserve_alpha = True
@@ -230,7 +235,7 @@ async def extract_useful_html(
     soup = bs4.BeautifulSoup(raw_html, "html.parser")
 
     for tag in soup(["script", "style", "meta", "iframe", "noscript", "video", "title"]):
-        if tag not in allowed_tags:
+        if tag.name not in allowed_tags:
             tag.decompose()
 
     img_tags = []
@@ -323,6 +328,7 @@ def decode_sms_data(encoded: str) -> str:
 
 
 def encode_sms_data(text: str) -> str:
+    print(text)
     text_bytes = text.encode('utf-8')
     compressed = brotli.compress(text_bytes, quality=11)
     return Base114.encode(compressed)
@@ -362,8 +368,6 @@ def make_chunks_with_prefix(text: str) -> list[str]:
         part_num += 1
 
     logger.info(f"Created {len(chunks)} SMS chunks from {len(text)} characters")
-    for n, part in enumerate(chunks):
-        print(n, f"({part})")
     return chunks
 
 
@@ -518,7 +522,7 @@ async def process_request(number: str, decoded_request: str):
             headers,
             allowed_tags
         )
-        html_with_base = f'<base href="{final_url}">{html}'
+        html_with_base = html if params.no_base else f'<base href="{final_url}">{html}'
         parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
         if len(parts) > SMS_LIMIT_PER_REQUEST and not params.no_limit:
             return await send_multipart_sms(number, encode_sms_data(f"Reached limit: {len(parts)} SMS"))
