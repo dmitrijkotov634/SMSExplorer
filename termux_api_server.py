@@ -60,6 +60,8 @@ SMS_LIMIT_PER_REQUEST = 100
 
 DOMAIN_MAPPING: dict[str, tuple[str, Optional[int]]] = {}
 
+cached_requirements = {}
+
 
 def parse_target(target_string: str) -> tuple[str, Optional[int]]:
     if ':' in target_string:
@@ -170,8 +172,10 @@ class RequestParams:
 
         for token in tokens:
             token_upper = token.strip().upper()
-            if token.lower().startswith("http"):
+            if token.startswith("http"):
                 url = token.strip()
+            elif token_upper.startswith("I"):
+                pass
             elif token_upper == "RAW":
                 flags.raw = True
             elif token_upper == "NOLIMIT":
@@ -195,6 +199,8 @@ class RequestParams:
                     pass
             elif token_upper in ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]:
                 flags.method = token_upper
+            elif "." in token:
+                url = f"http://{token.strip()}"
 
         return flags, url
 
@@ -474,18 +480,25 @@ async def process_request(number: str, decoded_request: str):
 
         # noinspection PyBroadException
         try:
-            check_response = await http_client.patch(
-                url=check_url,
-                headers=HEADERS
-            )
-            needs_phone_header = check_response.headers.get("SE-Phone-Number-Required", "").lower() == "true"
-            allow_images = check_response.headers.get("SE-Allow-Images", "").lower() == "true"
-            allowed_tags = []
-            for header, value in check_response.headers.items():
-                header_lower = header.lower()
-                if header_lower.startswith("se-allow-tag-") and value.lower() == "true":
-                    tag = header_lower.replace("se-allow-tag-", "")
-                    allowed_tags.append(tag)
+            check_headers = cached_requirements.get(check_url, None)
+
+            if check_headers is None:
+                check_response = await http_client.patch(check_url, headers=HEADERS)
+                check_headers = check_response.headers
+
+            headers_lower = {k.lower(): v.lower() for k, v in check_headers.items()}
+
+            needs_phone_header = headers_lower.get("se-phone-number-required") == "true"
+            allow_images = headers_lower.get("se-allow-images") == "true"
+
+            allowed_tags = [
+                header.replace("se-allow-tag-", "")
+                for header, value in headers_lower.items()
+                if header.startswith("se-allow-tag-") and value == "true"
+            ]
+
+            if headers_lower.get("se-requirements-cached") == "true":
+                cached_requirements[check_url] = check_headers
         except Exception:
             needs_phone_header = False
             allow_images = False

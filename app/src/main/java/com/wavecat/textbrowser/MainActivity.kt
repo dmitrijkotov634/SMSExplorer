@@ -482,6 +482,8 @@ class MainActivity : AppCompatActivity() {
             flags.remove("NOLIMIT")
         }
 
+        flags.add("i${('A'..'Z').random()}${('A'..'Z').random()}")
+
         if (imagesEnabled) {
             val imageQuality = preferences.getInt(IMAGE_QUALITY, 1)
 
