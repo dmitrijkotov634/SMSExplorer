@@ -27,13 +27,19 @@ class SmsViewModel : ViewModel() {
     val baseUrl = _baseUrl.asStateFlow()
 
     private val smsTimestamps = mutableListOf<Long>()
-    private val _estimatedTimeRemaining = MutableStateFlow<String?>(null)
+    private val _estimatedTimeRemaining = MutableStateFlow<EstimatedInfo?>(null)
     val estimatedTimeRemaining = _estimatedTimeRemaining.asStateFlow()
 
     private val _asyncResponse = MutableStateFlow<String?>(null)
     val asyncResponse = _asyncResponse.asStateFlow()
 
     private val _isWaitingForAsync = MutableStateFlow(false)
+
+    data class EstimatedInfo(
+        val timeRemaining: String,
+        val smsLeft: Int,
+        val totalSms: Int,
+    )
 
     fun setAsyncWaitingMode(isWaiting: Boolean) {
         _isWaitingForAsync.value = isWaiting
@@ -76,10 +82,14 @@ class SmsViewModel : ViewModel() {
             val minutes = estimatedRemainingMillis / 1000 / 60
             val seconds = (estimatedRemainingMillis / 1000) % 60
 
-            _estimatedTimeRemaining.value = when {
-                minutes > 0 -> "${minutes}m ${seconds}s"
-                else -> "${seconds}s"
-            }
+            _estimatedTimeRemaining.value = EstimatedInfo(
+                timeRemaining = when {
+                    minutes > 0 -> "${minutes}m ${seconds}s"
+                    else -> "${seconds}s"
+                },
+                smsLeft = smsParts.size,
+                totalSms = total
+            )
         }
 
         if (smsParts.size == total) {

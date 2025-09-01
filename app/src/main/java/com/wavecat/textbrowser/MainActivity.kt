@@ -145,7 +145,7 @@ class MainActivity : AppCompatActivity() {
                     launch {
                         isLoading.collect {
                             TransitionManager.beginDelayedTransition(root)
-                            progressOverlay.visibility = if (it) View.VISIBLE else View.GONE
+                            progressOverlay.visibility = if (it) View.VISIBLE else View.INVISIBLE
                             goBack.isEnabled = !it
                             menu.isEnabled = !it
                         }
@@ -156,7 +156,9 @@ class MainActivity : AppCompatActivity() {
                             estimatedInfo.text = time?.let {
                                 getString(
                                     R.string.estimated_time_remaining,
-                                    time
+                                    time.timeRemaining,
+                                    time.smsLeft,
+                                    time.totalSms
                                 )
                             } ?: ""
                         }
