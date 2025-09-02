@@ -236,7 +236,8 @@ async def extract_useful_html(
         params: RequestParams,
         base_url: str,
         headers: dict[str, str],
-        allowed_tags: list[str]
+        allowed_tags: list[str],
+        allowed_attrs: list[str]
 ) -> str:
     soup = bs4.BeautifulSoup(raw_html, "html.parser")
 
@@ -268,7 +269,7 @@ async def extract_useful_html(
         head_tag.decompose()
 
     for tag in soup.find_all(True):
-        tag.attrs = {k: v for k, v in tag.attrs.items() if k in ALLOWED_HTML_ATTRS}
+        tag.attrs = {k: v for k, v in tag.attrs.items() if k in ALLOWED_HTML_ATTRS or k in allowed_attrs}
 
     cleaned_html = str(soup)
     cleaned_html = re.sub(r'<!DOCTYPE[^>]*>', '', cleaned_html)
@@ -497,12 +498,19 @@ async def process_request(number: str, decoded_request: str):
                 if header.startswith("se-allow-tag-") and value == "true"
             ]
 
+            allowed_attrs = [
+                header.replace("se-allow-attr-", "")
+                for header, value in headers_lower.items()
+                if header.startswith("se-allow-attr-") and value == "true"
+            ]
+
             if headers_lower.get("se-requirements-cached") == "true":
                 cached_requirements[check_url] = check_headers
         except Exception:
             needs_phone_header = False
             allow_images = False
             allowed_tags = []
+            allowed_attrs = []
 
         if allow_images:
             params.images = True
@@ -533,7 +541,8 @@ async def process_request(number: str, decoded_request: str):
             params,
             str(response.url),
             headers,
-            allowed_tags
+            allowed_tags,
+            allowed_attrs
         )
         html_with_base = html if params.no_base else f'<base href="{final_url}">{html}'
         parts = make_chunks_with_prefix(encode_sms_data(html_with_base))
